@@ -1,11 +1,12 @@
-daa7342d8352d7e20b6d3dfe3f6bd246 *DESCRIPTION
+3f52ab55e604c169dae4518b6da3e972 *DESCRIPTION
 2e712300178fff00a293387d6a4867ac *NAMESPACE
-7026520db8df6626f8ab3bb6739649b2 *NEWS
-1148c9b38bc5b9e22524712dc94594f8 *R/yhatr.R
+33194570b214095ae45d59a660238de1 *NEWS
+21371b653f9f5803a2d961c9a1b7de0a *R/yhatr.R
 499475a3930dddc2d0ad099db447264d *README
 80cfd12a7899345bc661f85daef5d6f8 *demo/00Index
 6c2f43e0fb3965dbfbf75d4f75cd0af2 *demo/iris-glm.R
 063099ccd49536dc95f576b40e5cccce *demo/iris-rf.R
+664871ab0d2baebb88f951886621093e *man/check.image.size.Rd
 e791b87866691c9aed760664d437fcf4 *man/documentColumn.Rd
 1fd73ac1c93fd1a68b72e971aa058a15 *man/documentData.Rd
 f5e55e15651781b2b91d0ee1f518f72b *man/yhat.deploy.Rd
@@ -17,4 +18,4 @@ d91dafb408833dbe354592a8a51025e7 *man/yhat.post.Rd
 271db0e8a02e1cb1164bf88012b9c66d *man/yhat.predict_raw.Rd
 23eb0ef83199feb97a2fcbad13960abc *man/yhat.scaffolding.Rd
 63f2cc26d81fc6c643cf3275658a2116 *man/yhat.show_models.Rd
-cd6ce874200a4bfda2d9cd81e2bf4b84 *man/yhatr-package.Rd
+fe9606c06ef05dee538a634421bfeabc *man/yhatr-package.Rd
