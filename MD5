@@ -1,12 +1,15 @@
-09600e0a0c03fe0edaa472478b796b24 *DESCRIPTION
-92889c896716ed1d39c2fce06d1b3dfd *NAMESPACE
+daa7342d8352d7e20b6d3dfe3f6bd246 *DESCRIPTION
+2e712300178fff00a293387d6a4867ac *NAMESPACE
 7026520db8df6626f8ab3bb6739649b2 *NEWS
-e75dd8a79f724c0ba47e7ff08e077ec0 *R/yhatr.R
+1148c9b38bc5b9e22524712dc94594f8 *R/yhatr.R
 499475a3930dddc2d0ad099db447264d *README
 80cfd12a7899345bc661f85daef5d6f8 *demo/00Index
-dfbcad29a10da7368b61b8dc3c1eb043 *demo/iris-glm.R
-a2a62125d0134420afc3265c3248c670 *demo/iris-rf.R
-2cf58afd46c57a76bdc0f9bd09bec409 *man/yhat.deploy.Rd
+6c2f43e0fb3965dbfbf75d4f75cd0af2 *demo/iris-glm.R
+063099ccd49536dc95f576b40e5cccce *demo/iris-rf.R
+e791b87866691c9aed760664d437fcf4 *man/documentColumn.Rd
+1fd73ac1c93fd1a68b72e971aa058a15 *man/documentData.Rd
+f5e55e15651781b2b91d0ee1f518f72b *man/yhat.deploy.Rd
+7ba07509bf80991fa814891d97344270 *man/yhat.document.Rd
 2f8c2fdd8a90b9c75d86816e6e05d085 *man/yhat.get.Rd
 95e0a0681786a32b3e084be2f4237018 *man/yhat.login.Rd
 d91dafb408833dbe354592a8a51025e7 *man/yhat.post.Rd
@@ -15,4 +18,3 @@ d91dafb408833dbe354592a8a51025e7 *man/yhat.post.Rd
 23eb0ef83199feb97a2fcbad13960abc *man/yhat.scaffolding.Rd
 63f2cc26d81fc6c643cf3275658a2116 *man/yhat.show_models.Rd
 cd6ce874200a4bfda2d9cd81e2bf4b84 *man/yhatr-package.Rd
-ca2d8dd5cf157d942c6f273d96339bf3 *yhatr_0.1.tar.gz
