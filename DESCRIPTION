@@ -1,7 +1,7 @@
 Package: yhatr
 Type: Package
 Title: R binder for the Yhat API
-Version: 0.8
+Version: 0.8.1
 Date: 2013-09-04
 Author: Greg Lamp
 Maintainer: Greg Lamp <greg@yhathq.com>
@@ -11,8 +11,8 @@ Depends: R (>= 2.12.0)
 URL: https://github.com/yhat/yhatr
 Imports: httr, RCurl, rjson, plyr
 License: FreeBSD
-Collate: 'yhatr.R'
-Packaged: 2014-02-28 18:08:41 UTC; glamp
+Collate: 'yhatR.R'
+Packaged: 2014-03-12 19:51:37 UTC; glamp
 NeedsCompilation: no
 Repository: CRAN
-Date/Publication: 2014-02-28 20:42:15
+Date/Publication: 2014-03-13 08:19:08
