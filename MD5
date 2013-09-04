@@ -1,7 +1,7 @@
-3f52ab55e604c169dae4518b6da3e972 *DESCRIPTION
+6d7281aef31e05236f27426eacbf0feb *DESCRIPTION
 2e712300178fff00a293387d6a4867ac *NAMESPACE
 33194570b214095ae45d59a660238de1 *NEWS
-21371b653f9f5803a2d961c9a1b7de0a *R/yhatr.R
+363de465a1add93fc4f0034273fd4769 *R/yhatr.R
 499475a3930dddc2d0ad099db447264d *README
 80cfd12a7899345bc661f85daef5d6f8 *demo/00Index
 6c2f43e0fb3965dbfbf75d4f75cd0af2 *demo/iris-glm.R
@@ -18,4 +18,4 @@ d91dafb408833dbe354592a8a51025e7 *man/yhat.post.Rd
 271db0e8a02e1cb1164bf88012b9c66d *man/yhat.predict_raw.Rd
 23eb0ef83199feb97a2fcbad13960abc *man/yhat.scaffolding.Rd
 63f2cc26d81fc6c643cf3275658a2116 *man/yhat.show_models.Rd
-fe9606c06ef05dee538a634421bfeabc *man/yhatr-package.Rd
+febcb84fbcc7d17c931d25df574c5120 *man/yhatR-package.Rd
