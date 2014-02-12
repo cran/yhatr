@@ -11,9 +11,12 @@
 \examples{
 yhat.config <- c(
  username = "your username",
- apikey = "your apikey"
+ apikey = "your apikey",
+ env = "http://cloud.yhathq.com/"
 )
+\dontrun{
 yhat.show_models()
+}
 # some output here
 #    username className                  name version
 # 1      greg                 MySMSClassifier       1

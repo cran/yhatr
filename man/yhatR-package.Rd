@@ -24,13 +24,15 @@ Greg Lamp <greg@yhathq.com>
 }
 \keyword{ package }
 \seealso{
-  \url{http://yhathq.com/docs/lang/r}
-  \url{http://yhathq.com/docs/sample-apps}
-  \url{http://yhathq.com/docs/quickstarts/r}
+  \url{http://docs.yhathq.com/r/}
 }
 \examples{
 # build a quick model
-yhat.config <- c(username = "your username", apikey = "your apikey")
+yhat.config <- c(
+  username = "your username",
+  apikey = "your apikey", 
+  env = "http://cloud.yhathq.com/"
+)
 iris$Sepal.Width_sq <- iris$Sepal.Width^2
 fit <- glm(I(Species)=="virginica" ~ ., data=iris)
 
@@ -47,6 +49,7 @@ model.transform <- function(df) {
 model.predict <- function(df) {
   data.frame("prediction"=predict(fit, df, type="response"))
 } 
-yhat.deploy("irisModel")
+
+# yhat.deploy("irisModel")
 
 }
