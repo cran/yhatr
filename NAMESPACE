@@ -2,6 +2,7 @@
 
 export(yhat.deploy)
 export(yhat.deploy.to.file)
+export(yhat.deploy.with.scp)
 export(yhat.predict)
 export(yhat.predict_raw)
 export(yhat.scaffolding)
