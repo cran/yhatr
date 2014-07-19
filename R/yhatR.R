@@ -10,13 +10,44 @@ yhat.get <- function(endpoint, query=c()) {
 
   if ("env" %in% names(AUTH)) {
     url <- AUTH[["env"]]
+    url <- stringr::str_replace_all(url, "^http://", "")
+    url <- stringr::str_replace_all(url, "/$", "")
+    url <- sprintf("http://%s/", url)
     AUTH <- AUTH[!names(AUTH)=="env"]
     query <- c(query, AUTH)
     query <- paste(names(query), query, collapse="&", sep="=")
     url <- paste(url, endpoint, "?", query, sep="")
-    httr::GET(url, httr::authenticate(AUTH["username"], AUTH["apikey"], 'basic'))
+    httr::GET(url, httr::authenticate(AUTH[["username"]], AUTH[["apikey"]], 'basic'))
   } else {
     print("Please specify 'env' parameter in yhat.config.")
+  }
+}
+
+
+#' Private function for verifying username and apikey
+yhat.verify <- function() {
+  tryCatch({
+    AUTH <- get("yhat.config")
+  }, error = function(e) {
+    stop("Please define a yhat.config object")
+  })
+  env <- AUTH[["env"]]
+  env <- stringr::str_replace_all(env, "^http://", "")
+  env <- stringr::str_replace_all(env, "/$", "")
+  username <- AUTH[["username"]]
+  apikey <- AUTH[["apikey"]]
+  url <- sprintf("http://%s/verify?username=%s&apikey=%s",
+                 env, username, apikey)
+  rsp <- httr::POST(url)
+  if (httr::http_status(rsp)$category != "success") {
+    stop(sprintf("Bad response from http://%s/", env))
+  }
+  status <- httr::content(rsp)$success
+  if (is.null(status)) {
+    stop("Invalid apikey/username combination!")
+  }
+  if (status != "true") {
+    stop("Invalid apikey/username combination!")
   }
 }
 
@@ -33,13 +64,17 @@ yhat.post <- function(endpoint, query=c(), data) {
 
   if ("env" %in% names(AUTH)) {
     url <- AUTH[["env"]]
+    url <- stringr::str_replace_all(url, "^http://", "")
+    url <- stringr::str_replace_all(url, "/$", "")
+    url <- sprintf("http://%s/", url)
     AUTH <- AUTH[!names(AUTH)=="env"]
     query <- c(query, AUTH)
     query <- paste(names(query), query, collapse="&", sep="=")
     url <- paste(url, endpoint, "?", query, sep="")
+    print(url)
     httr::POST(url, body = rjson::toJSON(data),
                     config = c(
-                      httr::authenticate(AUTH["username"], AUTH["apikey"], 'basic'),
+                      httr::authenticate(AUTH[["username"]], AUTH[["apikey"]], 'basic'),
                       httr::add_headers("Content-Type" = "application/json")
                       )
               )
@@ -146,22 +181,25 @@ yhat.predict_raw <- function(model_name, data, model_owner) {
   }
   AUTH <- get("yhat.config")
   if ("env" %in% names(AUTH)) {
-    user <- AUTH["username"]
+    user <- AUTH[["username"]]
     if(!missing(model_owner)){
       user <- model_owner
     }
-    endpoint <- paste(user, "models", model_name, "", sep="/")
+    endpoint <- sprintf("%s/models/%s/", user, model_name)
   } else {
     stop("Please specify an env in yhat.config")
   }
-  # rsp <- yhat.post(endpoint, c(model = model_name),
-  #                  data = data)
-  model_url <- paste(AUTH[["env"]],"model/",model_name,"/",sep="")
+
+  # build the model url for the error message
+  url <- AUTH[["env"]]
+  url <- stringr::str_replace_all(url, "^http://", "")
+  url <- stringr::str_replace_all(url, "/$", "")
+  model_url <- sprintf("http://%s/model/%s/", url, model_name)
   error_msg <- paste("Invalid response: are you sure your model is built?\nHead over to",
                      model_url,"to see you model's current status.")
   tryCatch(
     {
-      rsp <- yhat.post(endpoint, c(model = model_name),
+      rsp <- yhat.post(endpoint,
                        data = data)
       httr::content(rsp)
     },
@@ -241,6 +279,7 @@ yhat.deploy <- function(model_name) {
   if (length(grep("^[A-Za-z_0-9]+$", model_name))==0) {
     stop("Model name can only contain following characters: A-Za-z_0-9")
   }
+  yhat.verify()
   img.size.mb <- check.image.size()
   AUTH <- get("yhat.config")
   if (length(AUTH)==0) {
@@ -248,10 +287,12 @@ yhat.deploy <- function(model_name) {
   }
   if ("env" %in% names(AUTH)) {
     env <- AUTH[["env"]]
+    env <- stringr::str_replace_all(env, "^http://", "")
+    env <- stringr::str_replace_all(env, "/$", "")
     AUTH <- AUTH[!names(AUTH)=="env"]
     query <- AUTH
     query <- paste(names(query), query, collapse="&", sep="=")
-    url <- paste(env, "deployer/model", "?", query, sep="")
+    url <- sprintf("http://%s/deployer/model?%s", env, query)
     image_file <- ".yhatdeployment.img"
     save(list=yhat.ls(),file=image_file)
     err.msg <- paste("Could not connect to yhat enterprise. Please ensure that your",
@@ -262,7 +303,7 @@ yhat.deploy <- function(model_name) {
                      env,
                      sep="\n")
     tryCatch({
-        rsp <- httr::POST(url, httr::authenticate(AUTH["username"], AUTH["apikey"], 'basic'),
+        rsp <- httr::POST(url, httr::authenticate(AUTH[["username"]], AUTH[["apikey"]], 'basic'),
                         body=list(
                            "model_image" = httr::upload_file(image_file),
                            "modelname" = model_name,
@@ -344,7 +385,7 @@ yhat.deploy.to.file <- function(model_name) {
 #' This is useful for larger models (>20 MB).
 #'
 #' @param model_name name of your model
-#' @param pem_path path to your aws .pem file
+#' @param pem_path path to your pemfile (for AWS)
 #' @keywords deploy
 #' @export
 #' @examples

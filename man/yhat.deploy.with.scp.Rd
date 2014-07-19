@@ -8,7 +8,7 @@ yhat.deploy.with.scp(model_name, pem_path)
 \arguments{
 \item{model_name}{name of your model}
 
-\item{pem_path}{path to your aws .pem file}
+\item{pem_path}{path to your pemfile (for AWS)}
 }
 \description{
 For when you have a really big model file and you don't want to mess with

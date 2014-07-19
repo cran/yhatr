@@ -1,7 +1,7 @@
-73db942f79409b3e498eb87e2f35f0af *DESCRIPTION
+42e3a20a3d38bebc8c328984e82ce1cb *DESCRIPTION
 6778d0259559b3a236ccecc24696bdce *NAMESPACE
-8afadec2344c3b7119b23e4e232a5ee9 *NEWS
-1fc1f4fcdd619d3fb0e2ce0cc0b71c78 *R/yhatR.R
+6da894dc034034748454f44e51c82a19 *NEWS
+88ae419e6dfd4eedcd77275e29609a99 *R/yhatR.R
 809671083d793af6db22696c8c27b056 *README
 80cfd12a7899345bc661f85daef5d6f8 *demo/00Index
 00855c57e176a717f1a1cd0519ce0867 *demo/iris-glm.R
@@ -11,7 +11,7 @@ abcc62b4726c0406d6f21099f028669a *man/check.dependencies.Rd
 e490860384a9f693521d849e711c9af7 *man/check.image.size.Rd
 8beca1cab1d87649d1c1f11570843909 *man/yhat.deploy.Rd
 875b5f38d21162126d555f554a3c6f1e *man/yhat.deploy.to.file.Rd
-f549005a5bdb1d823554333d1f012da6 *man/yhat.deploy.with.scp.Rd
+bb04e2f2557f1e1c0d5563806ad8eb39 *man/yhat.deploy.with.scp.Rd
 728ca59179e78fc29ec00e6d2c74f13a *man/yhat.get.Rd
 0843aeb13184579f9e096de707bf9e38 *man/yhat.ls.Rd
 2576de52b5b7c4ba4ee408d85ade2d54 *man/yhat.post.Rd
@@ -21,3 +21,4 @@ d52e68c603cdb4dda2bdea1bab594613 *man/yhat.predict_raw.Rd
 2a890d822c496253e6f35239f1232e3c *man/yhat.show_models.Rd
 08c08a3cde2290ea07830cc5118ebe0c *man/yhat.spider.block.Rd
 24c4bc35b39ffc4e38c09b807866d1e6 *man/yhat.spider.func.Rd
+a4452af818b1a32dd181990dfbdfce42 *man/yhat.verify.Rd
