@@ -19,7 +19,7 @@ yhat.get <- function(endpoint, query=c()) {
     url <- paste(url, endpoint, "?", query, sep="")
     httr::GET(url, httr::authenticate(AUTH[["username"]], AUTH[["apikey"]], 'basic'))
   } else {
-    print("Please specify 'env' parameter in yhat.config.")
+    message("Please specify 'env' parameter in yhat.config.")
   }
 }
 
@@ -56,7 +56,10 @@ yhat.verify <- function() {
 #' @param endpoint /path for REST request
 #' @param query url parameters for request
 #' @param data payload to be converted to raw JSON
-yhat.post <- function(endpoint, query=c(), data) {
+#' @param silent should output of url to console be silenced? 
+#' Default is \code{FALSE}.
+yhat.post <- function(endpoint, query=c(), data, silent = TRUE) {
+  if(!is.logical(silent)) stop("Argument 'silent' must be logical!")
   AUTH <- get("yhat.config")
   if (length(AUTH)==0) {
     stop("Please specify your account credentials using yhat.config.")
@@ -71,7 +74,9 @@ yhat.post <- function(endpoint, query=c(), data) {
     query <- c(query, AUTH)
     query <- paste(names(query), query, collapse="&", sep="=")
     url <- paste(url, endpoint, "?", query, sep="")
-    print(url)
+    if(silent==FALSE) {
+      message(url)
+    }
     httr::POST(url, body = rjson::toJSON(data),
                     config = c(
                       httr::authenticate(AUTH[["username"]], AUTH[["apikey"]], 'basic'),
@@ -79,7 +84,7 @@ yhat.post <- function(endpoint, query=c(), data) {
                       )
               )
   } else {
-    print("Please specify 'env' parameter in yhat.config.")
+    message("Please specify 'env' parameter in yhat.config.")
   }
 }
 
@@ -161,6 +166,9 @@ yhat.show_models <- function() {
 #' @param model_name the name of the model you want to call
 #' @param data input data for the model
 #' @param model_owner the owner of the model [optional]
+#' @param raw_input when true, incoming data will NOT be coerced into data.frame
+#' @param silent should output of url to console (via \code{yhat.post})
+#' be silenced? Default is \code{FALSE}.
 #'
 #' @export
 #' @examples
@@ -171,7 +179,7 @@ yhat.show_models <- function() {
 #' \dontrun{
 #' yhat.predict_raw("irisModel", iris)
 #' }
-yhat.predict_raw <- function(model_name, data, model_owner) {
+yhat.predict_raw <- function(model_name, data, model_owner, raw_input = FALSE, silent = TRUE) {
   usage <- "usage:  yhat.predict(<model_name>,<data>)"
   if(missing(model_name)){
     stop(paste("Please specify the model name you'd like to call",usage,sep="\n"))
@@ -195,16 +203,24 @@ yhat.predict_raw <- function(model_name, data, model_owner) {
   url <- stringr::str_replace_all(url, "^http://", "")
   url <- stringr::str_replace_all(url, "/$", "")
   model_url <- sprintf("http://%s/model/%s/", url, model_name)
+  
+  if (raw_input==TRUE) {
+    model_url <- paste0(model_url, "?raw=true")
+  }
+
   error_msg <- paste("Invalid response: are you sure your model is built?\nHead over to",
                      model_url,"to see you model's current status.")
   tryCatch(
     {
-      rsp <- yhat.post(endpoint,
-                       data = data)
+      rsp <- yhat.post(endpoint, data = data, silent = silent)
       httr::content(rsp)
     },
-    error = function(e){stop(error_msg)},
-    exception = function(e){stop(error_msg)}
+    error = function(e){
+      stop(error_msg)
+    },
+    exception = function(e){
+      stop(error_msg)
+    }
   )
 }
 #' Make a prediction using Yhat.
@@ -215,6 +231,9 @@ yhat.predict_raw <- function(model_name, data, model_owner) {
 #' @param model_name the name of the model you want to call
 #' @param data input data for the model
 #' @param model_owner the owner of the model [optional]
+#' @param raw_input when true, incoming data will NOT be coerced into data.frame
+#' @param silent should output of url to console (via \code{yhat.post})
+#' be silenced? Default is \code{FALSE}.
 #'
 #' @keywords predict
 #' @export
@@ -227,8 +246,8 @@ yhat.predict_raw <- function(model_name, data, model_owner) {
 #' \dontrun{
 #' yhat.predict("irisModel", iris)
 #' }
-yhat.predict <- function(model_name, data, model_owner) {
-  raw_rsp <- yhat.predict_raw(model_name, data, model_owner)
+yhat.predict <- function(model_name, data, model_owner, raw_input = FALSE, silent = TRUE) {
+  raw_rsp <- yhat.predict_raw(model_name, data, model_owner, raw_input = raw_input, silent = silent)
   tryCatch({
     if ("result" %in% names(raw_rsp)) {
       data.frame(lapply(raw_rsp$result, unlist))
@@ -236,8 +255,45 @@ yhat.predict <- function(model_name, data, model_owner) {
       data.frame(raw_rsp)
     }
   },
-  error = function(e){stop("Invalid response: are you sure your model is built?")},
-  exception = function(e){stop("Invalid response: are you sure your model is built?")})
+  error = function(e){
+    stop("Invalid response: are you sure your model is built?")
+  },
+  exception = function(e){
+    stop("Invalid response: are you sure your model is built?")
+  })
+}
+
+#' Test a prediction through the JSONification process
+#'
+#' This function tests model.transform and model.predict on new data by sending
+#' it through a JSONification process before the two stated functions. This
+#' allows users to test their model locally in conditions that are similar to
+#' those after a deployment.
+#'
+#' @param data Data to envoke the model with
+#' @export
+#' @examples
+#'
+#' model.transform <- function(df) {
+#'  df$Sepal.Width_sq <- df$Sepal.Width^2
+#'  df
+#' }
+#' model.predict <- function(df) {
+#'  data.frame("prediction"=predict(fit, df, type="response"))
+#' }
+#' \dontrun{
+#' model.test_predict(iris)
+#' }
+yhat.test_predict <- function(data) {
+  model.transform <- get("model.transform", globalenv())
+  model.predict <- get("model.predict", globalenv())
+  jsonified_data <- rjson::toJSON(data)
+  model_input_data <- jsonlite::fromJSON(jsonified_data)
+  model_input_data <- data.frame(model_input_data, stringsAsFactors=FALSE)
+  print(lapply(model_input_data, class))
+  transformed_data <- model.transform(model_input_data)
+  print(lapply(transformed_data, class))
+  model.predict(transformed_data)
 }
 
 #' Deploy a model to Yhat's servers
@@ -294,7 +350,12 @@ yhat.deploy <- function(model_name) {
     query <- paste(names(query), query, collapse="&", sep="=")
     url <- sprintf("http://%s/deployer/model?%s", env, query)
     image_file <- ".yhatdeployment.img"
-    save(list=yhat.ls(),file=image_file)
+    all_objects <- yhat.ls()
+    all_funcs <- all_objects[lapply(all_objects, function(name){
+      class(globalenv()[[name]])
+    }) == "function"]
+    save(list=all_objects,file=image_file)
+
     err.msg <- paste("Could not connect to yhat enterprise. Please ensure that your",
                      "specified server is online. Contact info [at] yhathq [dot] com",
                      "for further support.",
@@ -307,7 +368,7 @@ yhat.deploy <- function(model_name) {
                         body=list(
                            "model_image" = httr::upload_file(image_file),
                            "modelname" = model_name,
-			   "code" = capture.src()
+			   "code" = capture.src(all_funcs)
                                  )
                          )
       
@@ -320,7 +381,7 @@ yhat.deploy <- function(model_name) {
     unlink(image_file)
     rsp.df
   } else {
-    print("Please specify 'env' parameter in yhat.config.")
+    message("Please specify 'env' parameter in yhat.config.")
   }
 }
 
@@ -462,6 +523,56 @@ capture.src <- function(funcs){
         }
     }
     src
+}
+
+#' Generates a model.transform function from an example input data.frame.
+#' Handles columns which need to be type casted further after the initial JSON
+#' to Robject such as factors and ints.
+#'
+#' @param df A data.frame object which mirrors the kind of input to the model. 
+#'
+#' @export
+#' @examples
+#' \dontrun{
+#' model.transform <- yhat.transform_from_example(iris)
+#' }
+yhat.transform_from_example <- function(df) {
+    if(!is.data.frame(df)) {
+        stop("Input must be of class 'data.frame'")
+    }
+    # capture class types of each column
+    classes <- lapply(df, class)
+    factor_classes <- classes[classes == "factor"]
+    factor_levels <- lapply(df[names(factor_classes)], levels)
+    non_factor_classes <- classes[classes != "factor"]
+  
+    # The thing we're returning is a function
+    function(new_df) {
+        col_names <- names(new_df)
+        # factors require the levels to be set to the correct values
+        for(col_name in names(factor_levels)) {
+            if (col_name %in% col_names) {
+                new_df[[col_name]] <- factor(new_df[[col_name]], levels=factor_levels[[col_name]])
+            }    
+        }
+        # for the non factor columns, simply type cast
+        for(col_name in names(non_factor_classes)) {
+            if (col_name %in% col_names) {
+                as_type <- tryCatch({
+                    get(paste("as", non_factor_classes[[col_name]], sep="."))
+                }, error=function(cond) {
+                    # if we can't find the as.[type] function, just leave it alone
+                    function(col) { col }
+                })
+                new_df[[col_name]] <- tryCatch({
+                    as_type(new_df[[col_name]])
+                }, error=function(cond) {
+                    new_df[[col_name]]
+                })
+            }
+        }
+        new_df
+    }
 }
 
 #' Private function for recursively looking for variables
