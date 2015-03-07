@@ -274,6 +274,7 @@ yhat.predict <- function(model_name, data, model_owner, raw_input = FALSE, silen
 #' those after a deployment.
 #'
 #' @param data Data to envoke the model with
+#' @param verbose Whether or not to print intermediate results
 #' @export
 #' @examples
 #'
@@ -287,15 +288,19 @@ yhat.predict <- function(model_name, data, model_owner, raw_input = FALSE, silen
 #' \dontrun{
 #' model.test_predict(iris)
 #' }
-yhat.test_predict <- function(data) {
+yhat.test_predict <- function(data, verbose=FALSE) {
   model.transform <- get("model.transform", globalenv())
   model.predict <- get("model.predict", globalenv())
   jsonified_data <- rjson::toJSON(data)
   model_input_data <- jsonlite::fromJSON(jsonified_data)
   model_input_data <- data.frame(model_input_data, stringsAsFactors=FALSE)
-  print(lapply(model_input_data, class))
+  if (verbose) {
+    print(lapply(model_input_data, class))
+  }
   transformed_data <- model.transform(model_input_data)
-  print(lapply(transformed_data, class))
+  if (verbose) {
+    print(lapply(transformed_data, class))
+  }
   model.predict(transformed_data)
 }
 
@@ -371,6 +376,7 @@ yhat.deploy <- function(model_name) {
                         body=list(
                            "model_image" = httr::upload_file(image_file),
                            "modelname" = model_name,
+                           "packages" = capture.packages(),
 			   "code" = capture.src(all_funcs)
                                  )
                          )
@@ -528,6 +534,14 @@ capture.src <- function(funcs){
     src
 }
 
+capture.packages <- function(){
+  si <- sessionInfo()
+  pkgs <- names(si$otherPkgs)
+  pkgs <- pkgs[pkgs != "yhatr"]
+  pkgdata <- lapply(pkgs, function(x) list(name=x, version=packageDescription(x)$Version))
+  rjson::toJSON(pkgdata)
+}
+
 #' Generates a model.transform function from an example input data.frame.
 #' Handles columns which need to be type casted further after the initial JSON
 #' to Robject such as factors and ints.
@@ -632,7 +646,7 @@ yhat.spider.block <- function(block,defined.vars=c()){
                     defined.vars <- c(assign.to,defined.vars)
                 } else if (assign.to.type == "language"){
                     # Wait, what?!?! are you assigning to a block of code?
-                    symbols <- c(symbols,yhat.spider.block(assign.from,defined.vars))
+                    symbols <- c(symbols,yhat.spider.block(assign.to, defined.vars))
                 }
             } else {
                 # if the block isn't an assignment, recursively crawl
@@ -668,12 +682,13 @@ yhat.ls <- function(){
     funcs <- c("model.transform","model.predict") # function queue to spider
     dependencies <- funcs
     global.vars <- ls(.GlobalEnv,all.names=T)
-    # check functions
     for (func in funcs){
         if(!(func %in% global.vars)){
-            err.msg <- paste("ERROR: You must define \"",func,
-                             "\" before deploying a model",sep="")
-            stop(err.msg)
+            if (func!="model.transform") {
+              err.msg <- paste("ERROR: You must define \"",func,
+                               "\" before deploying a model",sep="")
+              stop(err.msg)
+            }
         }
     }
     while(length(funcs) > 0){
