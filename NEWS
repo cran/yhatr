@@ -1,3 +1,13 @@
+VERSION 0.13.9
+------------------------------------------------------------------------
+
+* Introduce yhat.library function, which allows model dependencies to be specified for github, as well as CRAN
+
+VERSION 0.13.8
+------------------------------------------------------------------------
+
+* print objects that are being captured
+
 VERSION 0.13.5
 ------------------------------------------------------------------------
 

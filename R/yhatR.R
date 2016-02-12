@@ -71,7 +71,8 @@ yhat.verify <- function() {
                    env, username, apikey)
   }
   rsp <- httr::POST(url)
-  if (httr::http_status(rsp)$category != "success") {
+  if (rsp$status_code != 200) {
+    cat(httr::content(rsp, "text"), "\n")
     stop(sprintf("Bad response from http://%s/", env))
   }
   status <- httr::content(rsp)$success
@@ -139,25 +140,6 @@ check.image.size <- function() {
   # lets get this into a data.frame
   df <- data.frame(unlist(model.size))
   model.size <- data.frame(obj=rownames(df),size.mb=df[[1]] / bytes.in.a.mb)
-  # how many megabytes is the image?
-  total.img.mb <- sum(model.size$size.mb)
-  max.size.mb <- 30
-  if (total.img.mb > max.size.mb) {
-    # check out my R skills brah
-    model.size.string <- paste(capture.output(model.size),collapse="\n")
-    # display object sizes to user
-    err.msg <- paste("Sorry, your model is too big to deploy via HTTP.",
-        "Try reducing the memory demand of your model (for instance convert matrices",
-        "to sparse representations instead of dense ones), or deploy the model using:",
-        "    yhat.deploy.to.file()",
-        "------------------------------",
-        "total image size (mb):",
-        total.img.mb,
-        "model dependencies:",
-        model.size.string,
-        sep="\n")
-    stop(err.msg)
-  }
   model.size
 }
 
@@ -165,39 +147,6 @@ check.image.size <- function() {
 #' 
 check.dependencies <- function() {
   is.function(jsonlite::validate)
-}
-
-#' Shows which models you have deployed on Yhat.
-#'
-#' This function queries the Yhat API and finds the models that have been deployed
-#' for your account.
-#'
-#' @export
-#' @examples
-#' yhat.config <- c(
-#'  username = "your username",
-#'  apikey = "your apikey",
-#'  env = "http://sandbox.yhathq.com/"
-#' )
-#' \dontrun{
-#' yhat.show_models()
-#' }
-#' # some output here
-#' #    username className                  name version
-#' # 1      greg                 MySMSClassifier       1
-#' # 2      greg                 MySMSClassifier       2
-#' # 3      greg                 MySMSClassifier       3
-#' # 4      greg                 MySMSClassifier       4
-yhat.show_models <- function() {
-  rsp <- yhat.get("showmodels")
-  js <- httr::content(rsp)
-  js <- lapply(js$models, function(model) {
-    if (is.null(model$className)) {
-      model$className <- ""
-    }
-    model
-  })
-  plyr::ldply(js, data.frame)
 }
 
 #' Calls Yhat's REST API and returns a JSON document containing both the prediction
@@ -313,46 +262,137 @@ yhat.predict <- function(model_name, data, model_owner, raw_input = FALSE, silen
   })
 }
 
-#' Test a prediction through the JSONification process
+# Create a new environment in order to namespace variables that hold the package state
+yhat <- new.env(parent = emptyenv())
+
+# Packages that need to be installed for the model to run - this will almost always
+# include all the packages listed in imports
+yhat$dependencies <- data.frame()
+
+# Private function for storing requirements that will be imported on
+# the ScienceOps server
+yhat$model.require <- function() {
+}
+
+#' Import one or more libraries and add them to the Yhat model's
+#' dependency list
 #'
-#' This function tests model.transform and model.predict on new data by sending
-#' it through a JSONification process before the two stated functions. This
-#' allows users to test their model locally in conditions that are similar to
-#' those after a deployment.
-#'
-#' @param data Data to envoke the model with
-#' @param verbose Whether or not to print intermediate results
+#' @param name name of the package to be added
+#' @param src source from which the package will be installed on ScienceOps (github or CRAN)
+#' @param version version of the package to be added
+#' @param user Github username associated with the package
+#' @param install Whether the package should also be installed into the model on the
+#' ScienceOps server; this is typically set to False when the package has already been
+#' added to the ScienceOps base image.
+#' @keywords import
 #' @export
 #' @examples
-#'
-#' model.transform <- function(df) {
-#'  df$Sepal.Width_sq <- df$Sepal.Width^2
-#'  df
-#' }
-#' model.predict <- function(df) {
-#'  data.frame("prediction"=predict(fit, df, type="response"))
-#' }
 #' \dontrun{
-#' model.test_predict(iris)
+#' yhat.library("MASS")
+#' yhat.library(c("rjson", "stringr"))
+#' yhat.library("cats", src="github", user="hilaryparker")
+#' yhat.library("hilaryparker/cats")
+#' yhat.library("my_proprietary_package", install=FALSE)
 #' }
-yhat.test_predict <- function(data, verbose=FALSE) {
-  t <- "model.transform"
-  model.transform <- mget(t, globalenv(), ifnotfound=list(NULL))[[t]]
-  if (is.null(model.transform)) {
-      model.transform <- function(x) { x }
+yhat.library <- function(name, src="CRAN", version=NULL, user=NULL, install=TRUE) {
+  # If a vector of CRAN packages is passed, add each of them
+  if (length(name) > 1) {
+    for (n in name) {
+      yhat.library(n, install=install)
+    }
+    return()
   }
-  model.predict <- get("model.predict", globalenv())
-  jsonified_data <- rjson::toJSON(data)
-  model_input_data <- jsonlite::fromJSON(jsonified_data)
-  model_input_data <- data.frame(model_input_data, stringsAsFactors=FALSE)
-  if (verbose) {
-    print(lapply(model_input_data, class))
+
+  if (!src %in% c("CRAN", "github")) {
+    stop(cat(src, "is not a valid package type"))
   }
-  transformed_data <- model.transform(model_input_data)
-  if (verbose) {
-    print(lapply(transformed_data, class))
+
+  if (src == "github") {
+    if (is.null(user)) {
+      stop(cat("no github username specified"))
+    }
+    installName <- paste(user, "/", name, sep="")
+  } else {
+    installName <- name
   }
-  model.predict(transformed_data)
+
+  if (grepl("/", name)) {
+    src <- "github"
+    nameAndUser <- unlist(strsplit(name, "/"))
+    user <- nameAndUser[[1]]
+    name <- nameAndUser[[2]]
+  }
+
+  library(name, character.only = TRUE)
+
+  # If a version wasn't manually specified, get this info from the session
+  if (is.null(version)) {
+    version <- packageDescription(name)$Version
+  }
+
+  add.dependency(installName, name, src, version, install)
+
+  set.model.require()
+}
+
+#' Removes a library from the Yhat model's dependency list
+#'
+#' @param name of the package to be removed
+#'
+#' @export
+#' @examples
+#' \dontrun{
+#' yhat.unload("wesanderson")
+#' }
+yhat.unload <- function(name) {
+  deps <- yhat$dependencies
+  yhat$dependencies <- deps[deps$importName != name,]
+  set.model.require()
+}
+
+#' Private function that adds a package to the list of dependencies
+#' that will be installed on the ScienceOps server
+#' @param name name of the package to be installed
+#' @param importName name under which the package is imported (for a github package, this may be different from the name used to install it)
+#' @param src source that the package is installed from (CRAN or github)
+#' @param version version of the package
+#' @param install whether or not the package should be installed in the model image
+add.dependency <- function(name, importName, src, version, install) {
+  # Don't add the dependency if it's already there
+  dependencies <- yhat$dependencies
+  if (!any(dependencies$name == name)) {
+    newRow <- data.frame(name=name, importName=importName, src=src, version=version, install=install)
+    dependencies <- rbind(dependencies, newRow)
+    yhat$dependencies <- dependencies
+  }
+}
+
+#' Private function that generates a model.require function based on
+#' the libraries that have been imported in this session.
+set.model.require <- function() {
+  imports <- yhat$dependencies$importName
+  yhat$model.require <- function() {
+    for (pkg in imports) {
+      library(pkg, character.only = TRUE)
+    }
+  }
+}
+
+confirm.deployment <- function() {
+  deps <- yhat$dependencies
+  deps$importName <- NULL
+  cat("Model will be deployed with the following dependencies:\n")
+  print(deps)
+  needsConfirm <- TRUE
+  while (needsConfirm) {
+      sure <- readline("Are you sure you want to deploy? y/n ")
+      if (sure == "n" || sure == "N") {
+        needsConfirm <- FALSE
+        stop("Deployment cancelled")
+      } else if (sure == "y" || sure == "Y") {
+        needsConfirm <- FALSE
+      }
+    }
 }
 
 #' Deploy a model to Yhat's servers
@@ -363,6 +403,7 @@ yhat.test_predict <- function(data, verbose=FALSE) {
 #'
 #' @param model_name name of your model
 #' @param packages list of packages to install using apt-get
+#' @param confirm boolean indicating whether to prompt before deploying
 #' @keywords deploy
 #' @export
 #' @examples
@@ -388,7 +429,7 @@ yhat.test_predict <- function(data, verbose=FALSE) {
 #' \dontrun{
 #' yhat.deploy("irisModel")
 #' }
-yhat.deploy <- function(model_name, packages=c()) {
+yhat.deploy <- function(model_name, packages=c(), confirm=TRUE) {
   if(missing(model_name)){
     stop("Please specify 'model_name' argument")
   }
@@ -401,6 +442,8 @@ yhat.deploy <- function(model_name, packages=c()) {
   if (length(AUTH)==0) {
     stop("Please specify your account credentials using yhat.config.")
   }
+
+
   if ("env" %in% names(AUTH)) {
     env <- AUTH[["env"]]
     usetls <- FALSE
@@ -417,186 +460,85 @@ yhat.deploy <- function(model_name, packages=c()) {
     } else {
       url <- sprintf("http://%s/deployer/model?%s", env, query)
     }
-    image_file <- ".yhatdeployment.img"
+    image_file <- tempfile(pattern="scienceops_deployment")
 
     all_objects <- yhat.ls()
+    # Consolidate local environment with global one
+    deployEnv <- new.env(parent = emptyenv())
+    deployEnv$model.require <- yhat$model.require
+    for (obj in all_objects) {
+      deployEnv[[obj]] <- globalenv()[[obj]]
+    }
     # if model.transform is not provided give it a default value
     if (!("model.transform" %in% all_objects)) {
         model.transform <- function(data) { data }
+        deployEnv$model.transform <- function(data) { data }
         all_objects <- c(all_objects, "model.transform")
     }
 
     all_funcs <- all_objects[lapply(all_objects, function(name){
       class(globalenv()[[name]])
     }) == "function"]
-    save(list=all_objects,file=image_file)
-    save(list=all_objects,file="tmp")
 
-    err.msg <- paste("Could not connect to yhat enterprise. Please ensure that your",
+    all_objects <- c("model.require", all_objects)
+
+    save(list=all_objects, envir=deployEnv, file=image_file)
+    cat("objects detected\n")
+
+    sizes <- lapply(all_objects, function(name) {
+      format( object.size(globalenv()[[name]]) , units="auto")
+    })
+    sizes <- unlist(sizes)
+    print(data.frame(name=all_objects, size=sizes))
+    cat("\n")
+
+    if (confirm) {
+      confirm.deployment()
+    }
+
+    dependencies <- yhat$dependencies[yhat$dependencies$install,]
+
+    err.msg <- paste("Could not connect to ScienceOps. Please ensure that your",
                      "specified server is online. Contact info [at] yhathq [dot] com",
                      "for further support.",
                      "-----------------------",
                      "Specified endpoint:",
                      env,
                      sep="\n")
-    tryCatch({
-        rsp <- httr::POST(url, httr::authenticate(AUTH[["username"]], AUTH[["apikey"]], 'basic'),
-                        body=list(
-                           "model_image" = httr::upload_file(image_file),
-                           "modelname" = model_name,
-                           "packages" = capture.packages(),
-                           "apt_packages" = packages,
-			   "code" = capture.src(all_funcs)
-                                 )
-                         )
-      
-        js <- httr::content(rsp)
-        rsp.df <- data.frame(js)
-      },
-      error=function(e){ unlink(image_file); stop(err.msg) },
-      exception=function(e){ unlink(image_file); stop(err.msg) }
+    rsp <- httr::POST(url, httr::authenticate(AUTH[["username"]], AUTH[["apikey"]], 'basic'),
+      body=list(
+      "model_image" = httr::upload_file(image_file),
+        "modelname" = model_name,
+        "packages" = jsonlite::toJSON(dependencies),
+        "apt_packages" = packages,
+		"code" = capture.src(all_funcs)
+      )
     )
+    body <- httr::content(rsp)
+    if (rsp$status_code != 200) {
+      unlink(image_file)
+      stop("deployment error: ", body)
+    }
+    rsp.df <- data.frame(body)
     unlink(image_file)
+    cat("deployment successful\n")
     rsp.df
   } else {
     message("Please specify 'env' parameter in yhat.config.")
   }
 }
 
-
-#' Deploy a model to a file that you can then upload via the browser.
-#'
-#' This function creates a .yhat file which can be deployed via the browser.
-#' This is useful for larger models (>20 MB).
-#'
-#' @param model_name name of your model
-#' @keywords deploy
-#' @export
-#' @examples
-#' yhat.config <- c(
-#'  username = "your username",
-#'  apikey = "your apikey",
-#'  env = "http://sandbox.yhathq.com/"
-#' )
-#' iris$Sepal.Width_sq <- iris$Sepal.Width^2
-#' fit <- glm(I(Species)=="virginica" ~ ., data=iris)
-#'
-#' model.require <- function() {
-#'  # require("randomForest")
-#' }
-#'
-#' model.transform <- function(df) {
-#'  df$Sepal.Width_sq <- df$Sepal.Width^2
-#'  df
-#' }
-#' model.predict <- function(df) {
-#'  data.frame("prediction"=predict(fit, df, type="response"))
-#' }
-#' \dontrun{
-#'  yhat.deploy.to.file("irisModel")
-#'  }
-yhat.deploy.to.file <- function(model_name) {
-  if(missing(model_name)){
-    stop("Please specify 'model_name' argument")
-  }  
-  if (length(grep("^[A-Za-z_0-9]+$", model_name))==0) {
-    stop("Model name can only contain following characters: A-Za-z_0-9")
-  }
-  AUTH <- get("yhat.config")
-  username <- AUTH[["username"]]
-  apikey <- AUTH[["apikey"]]
-  f <- ".yhatdeployment.img"
-  save(list=yhat.ls(),file=f)
-  img <- RCurl::base64Encode(readBin(f, "raw", file.info(f)[1,"size"]))
-  data <- list(
-    image=img[1],
-    modelName=model_name,
-    className=model_name,
-    username=username,
-    apikey=apikey,
-    language="r"
-  )
-  base::write(rjson::toJSON(data), file=paste(model_name, ".yhat", sep=""))
-  paste("file written to :", paste(model_name, ".yhat", sep=""))
-}
-#' Deploy a model via SCP. For when you want to automate large model uploads.
-#'
-#' For when you have a really big model file and you don't want to mess with
-#' uploading it via the admin console.
-#' This is useful for larger models (>20 MB).
-#'
-#' @param model_name name of your model
-#' @param pem_path path to your pemfile (for AWS)
-#' @keywords deploy
-#' @export
-#' @examples
-#' yhat.config <- c(
-#'  username = "your username",
-#'  apikey = "your apikey",
-#'  env = "http://google.yhathq.com/"
-#' )
-#' iris$Sepal.Width_sq <- iris$Sepal.Width^2
-#' fit <- glm(I(Species)=="virginica" ~ ., data=iris)
-#'
-#' model.require <- function() {
-#'  # require("randomForest")
-#' }
-#'
-#' model.transform <- function(df) {
-#'  df$Sepal.Width_sq <- df$Sepal.Width^2
-#'  df
-#' }
-#' model.predict <- function(df) {
-#'  data.frame("prediction"=predict(fit, df, type="response"))
-#' }
-#' \dontrun{
-#'  yhat.deploy.with.scp("irisModel", "~/path/to/pemfile.pem")
-#' }
-yhat.deploy.with.scp <- function(model_name, pem_path) {
-  yhat.deploy.to.file(model_name)
-  filename <- paste(model_name, ".yhat", sep="")
-  AUTH <- get("yhat.config")
-  servername <- AUTH[["env"]]
-
-  system(paste("scp -i ", pem_path, " ubuntu@", servername, ":~/"))
-  system(paste0("ssh -i ", pem_path, " ubuntu@", servername, " 'sudo mv ~/", filename, " /var/yhat/headquarters/uploads/'"))
-  NULL
-}
-
-#' Quick function for setting up a basic scaffolding of functions for deploying on Yhat.
-#'
-#' @export
-#' @examples
-#' yhat.scaffolding()
-yhat.scaffolding <- function() {
-  txt <- c(
-    "model_transform <- function(df) {
-  df.transformed <- transform(df, x2=x^2)
-  df.transformed
-}
-model_predict <- function(df) {
-  pred <- predict(df)
-  data.frame('myPrediction' = pred)
-}
-model_require <- function() {
-  require('library1')
-  require('library2')
-}"
-)
-  con <- file("yhatExample.R", open="w")
-  writeLines(txt, con)
-  close(con)
-}
-
 #' Private function for catpuring the source code of model
 #'
-#' @param funcs functions to caputre, defaults to required yhat model functions
+#' @param funcs functions to capture, defaults to required yhat model functions
 capture.src <- function(funcs){
+    yhat$model.require()
     if(missing(funcs)){
-        funcs <- c("model.require","model.transform","model.predict")
+        funcs <- c("model.transform","model.predict")
     }
     global.vars <- ls(.GlobalEnv)
-    src <- "library(yhatr)"
+    src <- paste(capture.output(yhat$model.require),collapse="\n")
+    
     for(func in funcs){
         if(func %in% global.vars){
 	    func.src <- paste(capture.output(.GlobalEnv[[func]]),collapse="\n")
@@ -605,64 +547,6 @@ capture.src <- function(funcs){
         }
     }
     src
-}
-
-capture.packages <- function(){
-  si <- sessionInfo()
-  pkgs <- names(si$otherPkgs)
-  pkgs <- pkgs[pkgs != "yhatr"]
-  pkgdata <- lapply(pkgs, function(x) list(name=x, version=packageDescription(x)$Version))
-  rjson::toJSON(pkgdata)
-}
-
-#' Generates a model.transform function from an example input data.frame.
-#' Handles columns which need to be type casted further after the initial JSON
-#' to Robject such as factors and ints.
-#'
-#' @param df A data.frame object which mirrors the kind of input to the model. 
-#'
-#' @export
-#' @examples
-#' \dontrun{
-#' model.transform <- yhat.transform_from_example(iris)
-#' }
-yhat.transform_from_example <- function(df) {
-    if(!is.data.frame(df)) {
-        stop("Input must be of class 'data.frame'")
-    }
-    # capture class types of each column
-    classes <- lapply(df, class)
-    factor_classes <- classes[classes == "factor"]
-    factor_levels <- lapply(df[names(factor_classes)], levels)
-    non_factor_classes <- classes[classes != "factor"]
-  
-    # The thing we're returning is a function
-    function(new_df) {
-        col_names <- names(new_df)
-        # factors require the levels to be set to the correct values
-        for(col_name in names(factor_levels)) {
-            if (col_name %in% col_names) {
-                new_df[[col_name]] <- factor(new_df[[col_name]], levels=factor_levels[[col_name]])
-            }    
-        }
-        # for the non factor columns, simply type cast
-        for(col_name in names(non_factor_classes)) {
-            if (col_name %in% col_names) {
-                as_type <- tryCatch({
-                    get(paste("as", non_factor_classes[[col_name]], sep="."))
-                }, error=function(cond) {
-                    # if we can't find the as.[type] function, just leave it alone
-                    function(col) { col }
-                })
-                new_df[[col_name]] <- tryCatch({
-                    as_type(new_df[[col_name]])
-                }, error=function(cond) {
-                    new_df[[col_name]]
-                })
-            }
-        }
-        new_df
-    }
 }
 
 #' Private function for recursively looking for variables
@@ -795,7 +679,7 @@ yhat.ls <- function(){
         }
     }
     if("model.require" %in% global.vars){
-        dependencies <- c("model.require",dependencies)
+        stop("Warning: model.require is deprecated as of yhatr 0.13.9 - please use yhat.library to specify model dependencies")
     }
     dependencies
 }
