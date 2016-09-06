@@ -89,9 +89,10 @@ yhat.verify <- function() {
 #' @param endpoint /path for REST request
 #' @param query url parameters for request
 #' @param data payload to be converted to raw JSON
-#' @param silent should output of url to console be silenced? 
+#' @param silent should output of url to console be silenced?
 #' Default is \code{FALSE}.
-yhat.post <- function(endpoint, query=c(), data, silent = TRUE) {
+#' @param bulk is this a bulk style request? Default is \code{FALSE}.
+yhat.post <- function(endpoint, query=c(), data, silent = TRUE, bulk = FALSE) {
   if(!is.logical(silent)) stop("Argument 'silent' must be logical!")
   AUTH <- get("yhat.config")
   if (length(AUTH)==0) {
@@ -106,7 +107,7 @@ yhat.post <- function(endpoint, query=c(), data, silent = TRUE) {
     }
     url <- stringr::str_replace_all(url, "^https?://", "")
     url <- stringr::str_replace_all(url, "/$", "")
-    if (usetls) { 
+    if (usetls) {
       url <- sprintf("https://%s/", url)
     } else {
       url <- sprintf("http://%s/", url)
@@ -118,7 +119,16 @@ yhat.post <- function(endpoint, query=c(), data, silent = TRUE) {
     if(silent==FALSE) {
       message(url)
     }
-    httr::POST(url, body = rjson::toJSON(data),
+
+    # bullk sends back line delimited JSON
+    if (bulk==TRUE) {
+      out <- textConnection("data.json", "w")
+      jsonlite::stream_out(data, con = out)
+      close(out)
+    } else {
+      data.json <- jsonlite::toJSON(data, dataframe = "columns")
+    }
+    httr::POST(url, body = data.json,
                     config = c(
                       httr::authenticate(AUTH[["username"]], AUTH[["apikey"]], 'basic'),
                       httr::add_headers("Content-Type" = "application/json")
@@ -144,7 +154,7 @@ check.image.size <- function() {
 }
 
 #' Checks dependencies and makes sure all are installed.
-#' 
+#'
 check.dependencies <- function() {
   is.function(jsonlite::validate)
 }
@@ -158,6 +168,7 @@ check.dependencies <- function() {
 #' @param raw_input when true, incoming data will NOT be coerced into data.frame
 #' @param silent should output of url to console (via \code{yhat.post})
 #' be silenced? Default is \code{FALSE}.
+#' @param bulk should the bulk api be used Default is \code{FALSE}.
 #'
 #' @export
 #' @examples
@@ -168,7 +179,7 @@ check.dependencies <- function() {
 #' \dontrun{
 #' yhat.predict_raw("irisModel", iris)
 #' }
-yhat.predict_raw <- function(model_name, data, model_owner, raw_input = FALSE, silent = TRUE) {
+yhat.predict_raw <- function(model_name, data, model_owner, raw_input = FALSE, silent = TRUE, bulk = FALSE) {
   usage <- "usage:  yhat.predict(<model_name>,<data>)"
   if(missing(model_name)){
     stop(paste("Please specify the model name you'd like to call",usage,sep="\n"))
@@ -204,18 +215,23 @@ yhat.predict_raw <- function(model_name, data, model_owner, raw_input = FALSE, s
   if (raw_input==TRUE) {
     query[["raw_input"]] <- "true"
   }
+  if (bulk==TRUE) {
+    query[["bulk"]] <- "true"
+  }
 
   error_msg <- paste("Invalid response: are you sure your model is built?\nHead over to",
                      model_url,"to see you model's current status.")
   tryCatch(
     {
-      rsp <- yhat.post(endpoint, query = query, data = data, silent = silent)
+      rsp <- yhat.post(endpoint, query = query, data = data, silent = silent, bulk = bulk)
       httr::content(rsp)
     },
     error = function(e){
+      print(e)
       stop(error_msg)
     },
     exception = function(e){
+      print(e)
       stop(error_msg)
     }
   )
@@ -262,6 +278,50 @@ yhat.predict <- function(model_name, data, model_owner, raw_input = FALSE, silen
   })
 }
 
+#' Make bulk predictions using Yhat.
+#'
+#' This function calls Yhat's bulk API and returns a response formatted as a
+#' data frame.
+#'
+#' @param model_name the name of the model you want to call
+#' @param data input rows of data to be scored
+#' @param model_owner the owner of the model [optional]
+#' @param raw_input when true, incoming data will NOT be coerced into data.frame
+#' @param silent should output of url to console (via \code{yhat.post})
+#' be silenced? Default is \code{FALSE}.
+#'
+#' @keywords bulk
+#' @export
+#' @examples
+#' yhat.config <- c(
+#'  username = "your username",
+#'  apikey = "your apikey",
+#'  env = "http://sandbox.yhathq.com/"
+#' )
+#' \dontrun{
+#' yhat.predict_bulk("irisModel", iris)
+#' }
+yhat.predict_bulk <- function(model_name, data, model_owner, raw_input = FALSE, silent = TRUE) {
+  raw_rsp <- yhat.predict_raw(model_name, data, model_owner, raw_input = raw_input, silent = silent, bulk = TRUE)
+  tryCatch({
+    # this is weird but it's the only way I could figure out how to turn raw_rsp
+    # into a connection() type (which is basically a stream). we create a tempfile,
+    # write raw_rsp to that file, then read it back in using jsonlite
+    f <- file(tmp <- tempfile())
+    write(raw_rsp, f)
+    close(f)
+    output <- jsonlite::stream_in(file(tmp))
+    unlink(tmp)
+    output
+  },
+  error = function(e){
+    stop(paste("Invalid response: are you sure your model is built?", e))
+  },
+  exception = function(e){
+    stop("Invalid response: are you sure your model is built?")
+  })
+}
+
 # Create a new environment in order to namespace variables that hold the package state
 yhat <- new.env(parent = emptyenv())
 
@@ -289,7 +349,7 @@ yhat$model.require <- function() {
 #' @examples
 #' \dontrun{
 #' yhat.library("MASS")
-#' yhat.library(c("rjson", "stringr"))
+#' yhat.library(c("wesanderson", "stringr"))
 #' yhat.library("cats", src="github", user="hilaryparker")
 #' yhat.library("hilaryparker/cats")
 #' yhat.library("my_proprietary_package", install=FALSE)
@@ -353,7 +413,8 @@ yhat.unload <- function(name) {
 #' Private function that adds a package to the list of dependencies
 #' that will be installed on the ScienceOps server
 #' @param name name of the package to be installed
-#' @param importName name under which the package is imported (for a github package, this may be different from the name used to install it)
+#' @param importName name under which the package is imported (for a github package,
+#' this may be different from the name used to install it)
 #' @param src source that the package is installed from (CRAN or github)
 #' @param version version of the package
 #' @param install whether or not the package should be installed in the model image
@@ -497,7 +558,6 @@ yhat.deploy <- function(model_name, packages=c(), confirm=TRUE) {
     }
 
     dependencies <- yhat$dependencies[yhat$dependencies$install,]
-
     err.msg <- paste("Could not connect to ScienceOps. Please ensure that your",
                      "specified server is online. Contact info [at] yhathq [dot] com",
                      "for further support.",
@@ -528,22 +588,175 @@ yhat.deploy <- function(model_name, packages=c(), confirm=TRUE) {
   }
 }
 
+#' Deploy a batch model to Yhat servers
+#'
+#' This function will deploy your batch model to the yhat servers
+#'
+#' @param job_name name of batch job
+#' @param confirm boolean indicating whether to prompt before deploying
+#' @keywords deploy
+#' @export
+#' @examples
+#' yhat.config <- c(
+#'  username = "your username",
+#'  apikey = "your apikey",
+#'  env = "http://sandbox.yhathq.com/"
+#' )
+#' yhat.batch <- function() {
+#'   name <- "ross"
+#'   greeting <- paste("Hello", name)
+#'   print(greeting)
+#' }
+#' \dontrun{
+#' yhat.batchDeploy("helloworld")
+#' }
+yhat.batchDeploy <- function(job_name, confirm=TRUE) {
+  if(missing(job_name)) {
+    stop("Please specify 'job_name' argument")
+  }
+  if (length(grep("^[a-z_0-9]+$", job_name))==0) {
+    stop("Model name can only contain following characters: a-z_0-9")
+  }
+  yhat.verify()
+  AUTH <- get("yhat.config")
+  if (length(AUTH)==0) {
+    stop("Please specify your account credentials using yhat.config.")
+  }
+  # Check if we have a yhat.yaml file, if we don't then ask the user to try again
+  if (!file.exists('yhat.yaml')) {
+    stop("Please provide a yhat.yaml file in the working directory to specify the job config.")
+  }
+
+  if ("env" %in% names(AUTH)) {
+    env <- AUTH[["env"]]
+    usetls <- FALSE
+    if (is.https(env)) {
+      usetls <- TRUE
+    }
+    env <- stringr::str_replace_all(env, "^https?://", "")
+    env <- stringr::str_replace_all(env, "/$", "")
+    AUTH <- AUTH[!names(AUTH)=="env"]
+    query <- AUTH
+    query <- paste(names(query), query, collapse="&", sep="=")
+    if (usetls) {
+      url <- sprintf("https://%s/batch/deploy?%s", env, query)
+    } else {
+      url <- sprintf("http://%s/batch/deploy?%s", env, query)
+    }
+
+    all_objects <- yhat.ls(batchMode=TRUE)
+
+    all_funcs <- all_objects[lapply(all_objects, function(name){
+      class(globalenv()[[name]])
+    }) == "function"]
+
+    all_objects <- c("model.require", all_objects)
+
+    cat("objects detected\n")
+
+    sizes <- lapply(all_objects, function(name) {
+      format( object.size(globalenv()[[name]]) , units="auto")
+    })
+    sizes <- unlist(sizes)
+    print(data.frame(name=all_objects, size=sizes))
+    cat("\n")
+
+    if (confirm && interactive()) {
+      confirm.deployment()
+    }
+
+    dependencies <- yhat$dependencies[yhat$dependencies$install,]
+
+    err.msg <- paste("Could not connect to ScienceOps. Please ensure that your",
+                     "specified server is online. Contact info [at] yhathq [dot] com",
+                     "for further support.",
+                     "-----------------------",
+                     "Specified endpoint:",
+                     env,
+                     sep="\n")
+
+    # Create the bundle.json and requirements.txt files
+    bundleFrame <- list(
+      code = jsonlite::unbox(capture.src(all_funcs, capture.model.require=FALSE)),
+      language = jsonlite::unbox("R")
+    )
+    bundleJson <- jsonlite::toJSON(bundleFrame)
+    f = file("bundle.json", open="wb")
+    write(bundleJson, f)
+    close(f)
+
+    depList = list(dependencies=dependencies)
+    depJson <- jsonlite::toJSON(depList, dataframe=c("rows"))
+    f = file("requirements.txt", open="wb")
+    write(depJson, f)
+    close(f)
+
+    # Create the bundle
+    sysName <- Sys.info()["sysname"]
+    zip <- ""
+    if (sysName == "Darwin" || sysName == "Linux") {
+      # OSX workaround...
+      bundle_name <- "yhat_job.tar.gz"
+      filenames <- c('bundle.json', 'yhat.yaml', 'requirements.txt')
+      filenames.fmt <- paste(filenames, collapse=" ")
+      cmd <- sprintf("/usr/bin/tar -czvf %s %s", bundle_name, filenames.fmt)
+      system(cmd, ignore.stdout = TRUE, ignore.stderr = TRUE)
+    } else if (sysName == "Windows") {
+      bundle_name <- "yhat_job.zip"
+      zip(bundle_name, c("bundle.json", 'yhat.yaml', 'requirements.txt'))
+      zip <- "true"
+    } else {
+      bundle_name <- "yhat_job.tar.gz"
+      tar(bundle_name, c("bundle.json", 'yhat.yaml', 'requirements.txt'), compression = 'gzip', tar='tar')
+    }
+
+    rsp <- httr::POST(url,
+      httr::authenticate(AUTH[["username"]], AUTH[["apikey"]], 'basic'),
+      body=list(
+        "job" = httr::upload_file(bundle_name),
+        "job_name" = job_name,
+        "zip" = zip
+      )
+    )
+    body <- httr::content(rsp)
+    if (rsp$status_code != 200) {
+      unlink(bundle_name)
+      stop("deployment error: ", body)
+    }
+    rsp.df <- data.frame(body)
+    # After the upload, clean up
+    unlink(bundle_name)
+    unlink("bundle.json")
+    unlink("requirements.txt")
+    cat("deployment successful\n")
+    rsp.df
+  } else {
+    message("Please specify 'env' parameter in yhat.config.")
+  }
+}
+
+
+
 #' Private function for catpuring the source code of model
 #'
 #' @param funcs functions to capture, defaults to required yhat model functions
-capture.src <- function(funcs){
+#' @param capture.model.require flag to capture the model.require function
+capture.src <- function(funcs, capture.model.require=TRUE){
     yhat$model.require()
     if(missing(funcs)){
         funcs <- c("model.transform","model.predict")
     }
     global.vars <- ls(.GlobalEnv)
-    src <- paste(capture.output(yhat$model.require),collapse="\n")
-    
+    src <- ""
+    if (capture.model.require==TRUE) {
+      src <- paste(capture.output(yhat$model.require),collapse="\n")
+    }
+
     for(func in funcs){
         if(func %in% global.vars){
-	    func.src <- paste(capture.output(.GlobalEnv[[func]]),collapse="\n")
-            func.src <- paste(func,"<-",func.src)
-            src <- paste(src,func.src,sep="\n\n")
+            func.src <- paste(capture.output(.GlobalEnv[[func]]), collapse="\n")
+            func.src <- paste(func,"<-", func.src)
+            src <- paste(src, func.src,sep="\n\n")
         }
     }
     src
@@ -576,7 +789,7 @@ yhat.spider.block <- function(block,defined.vars=c()){
         })
         if(!is.valid.symbol){ next }
         node.type <- typeof(node)
-        # if node type is "symbol" then it might be a variable 
+        # if node type is "symbol" then it might be a variable
         if(node.type == "symbol"){
             # if symbol not already defined then it might be a dependency
             if(!any(node == defined.vars)){
@@ -594,10 +807,10 @@ yhat.spider.block <- function(block,defined.vars=c()){
                 if (assign.from.type == "symbol"){
                     # if symbol not already defined then it might be a dependency
                     if (!any(assign.from == defined.vars)){
-                        symbols <- c(symbols,assign.from)
+                        symbols <- c(symbols, assign.from)
                     }
-                } else if (assign.from.type == "language"){
-                    symbols <- c(symbols,yhat.spider.block(assign.from,defined.vars))
+                } else if (assign.from.type == "language") {
+                    symbols <- c(symbols, yhat.spider.block(assign.from, defined.vars))
                 }
 
                 assign.to <- node[[2]]
@@ -638,17 +851,28 @@ yhat.spider.func <- function(func.name){
 #' Private function for determining model dependencies
 #'
 #' List all object names which are dependencies of `model.transform`
-#' and `model.predict`
-yhat.ls <- function(){
+#' and `model.predict` or `yhat.batch` if this is a batch mode deploy
+#'
+#' @param batchMode boolean to capture yhat.batch code for a batch job
+yhat.ls <- function(batchMode=FALSE){
     funcs <- c("model.predict") # function queue to spider
     global.vars <- ls(.GlobalEnv,all.names=T)
-    if("model.transform" %in% global.vars){
+    if ("model.transform" %in% global.vars) {
         funcs <- c(funcs, "model.transform")
     }
-    if (!("model.predict" %in% global.vars)){
+    if (batchMode) {
+      funcs <- c("yhat.batch")
+      if (!("yhat.batch" %in% global.vars)){
+        err.msg <- "ERROR: You must define \"yhat.batch\" before deploying a batch job"
+        stop(err.msg)
+      }
+    } else {
+      if (!("model.predict" %in% global.vars)){
         err.msg <- "ERROR: You must define \"model.predict\" before deploying a model"
         stop(err.msg)
+      }
     }
+
     dependencies <- funcs
     while(length(funcs) > 0){
         # pop first function from queue
